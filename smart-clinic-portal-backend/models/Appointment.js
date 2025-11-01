@@ -11,9 +11,9 @@ const AppointmentSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
-  clinic: {
+  organization: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Clinic',
+    ref: 'Organization',
     required: true
   },
   appointmentDate: {
@@ -32,8 +32,12 @@ const AppointmentSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'no-show'],
-    default: 'scheduled'
+    enum: ['pending', 'scheduled', 'confirmed', 'in-progress', 'completed', 'cancelled', 'rejected', 'no-show'],
+    default: 'pending'
+  },
+  rejectionReason: {
+    type: String,
+    maxlength: [500, 'Rejection reason cannot exceed 500 characters']
   },
   type: {
     type: String,
@@ -86,23 +90,23 @@ const AppointmentSchema = new mongoose.Schema({
 // Index for efficient queries
 AppointmentSchema.index({ patient: 1, appointmentDate: 1 });
 AppointmentSchema.index({ doctor: 1, appointmentDate: 1 });
-AppointmentSchema.index({ clinic: 1, appointmentDate: 1 });
+AppointmentSchema.index({ organization: 1, appointmentDate: 1 });
 AppointmentSchema.index({ status: 1 });
 
 // Virtual for appointment duration in hours
-AppointmentSchema.virtual('durationInHours').get(function() {
+AppointmentSchema.virtual('durationInHours').get(function () {
   return this.duration / 60;
 });
 
 // Method to check if appointment is upcoming
-AppointmentSchema.methods.isUpcoming = function() {
+AppointmentSchema.methods.isUpcoming = function () {
   const now = new Date();
   const appointmentDateTime = new Date(`${this.appointmentDate.toDateString()} ${this.appointmentTime}`);
   return appointmentDateTime > now && this.status === 'scheduled';
 };
 
 // Method to check if appointment is today
-AppointmentSchema.methods.isToday = function() {
+AppointmentSchema.methods.isToday = function () {
   const today = new Date();
   const appointmentDate = new Date(this.appointmentDate);
   return appointmentDate.toDateString() === today.toDateString();

@@ -49,6 +49,11 @@ const ClinicSettings = () => {
   const fetchOrganization = async () => {
     setLoading(true);
     try {
+      if (!user?.organizationId) {
+        toast.error('No organization assigned to your account');
+        setLoading(false);
+        return;
+      }
       const res = await organizationsAPI.getById(user.organizationId);
       const org = res.data?.organization;
       setOrganization(org);
@@ -71,10 +76,16 @@ const ClinicSettings = () => {
           specialties: Array.isArray(org.specialties) ? org.specialties.join(', ') : '',
           services: Array.isArray(org.services) ? org.services.join(', ') : ''
         });
+      } else {
+        toast.error('Organization not found');
       }
     } catch (error) {
       console.error('Fetch organization error:', error);
-      toast.error('Failed to load clinic details');
+      if (error.response?.status === 404) {
+        toast.error('Organization not found. Please contact support.');
+      } else {
+        toast.error('Failed to load clinic details');
+      }
     } finally {
       setLoading(false);
     }

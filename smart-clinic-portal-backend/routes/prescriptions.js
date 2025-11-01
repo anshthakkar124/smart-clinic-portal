@@ -5,7 +5,7 @@ const { auth, authorize, isDoctor, isOwnerOrAdmin } = require('../middleware/aut
 const Prescription = require('../models/Prescription');
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
-const Clinic = require('../models/Clinic');
+const Organization = require('../models/Organization');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
@@ -34,7 +34,7 @@ router.get('/', auth, [
 
     // Build filter object
     const filter = {};
-    
+
     // Role-based filtering
     if (req.user.role === 'patient') {
       filter.patient = req.user.userId;
@@ -51,7 +51,7 @@ router.get('/', auth, [
     const prescriptions = await Prescription.find(filter)
       .populate('patient', 'name email phone dateOfBirth address')
       .populate('doctor', 'name email phone')
-      .populate('clinic', 'name address contact')
+      .populate('organization', 'name address contact')
       .populate('appointment', 'appointmentDate appointmentTime reason')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -71,8 +71,8 @@ router.get('/', auth, [
     });
   } catch (error) {
     console.error('Get prescriptions error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -86,7 +86,7 @@ router.get('/:id', auth, async (req, res) => {
     const prescription = await Prescription.findById(req.params.id)
       .populate('patient', 'name email phone dateOfBirth address emergencyContact')
       .populate('doctor', 'name email phone')
-      .populate('clinic', 'name address contact')
+      .populate('organization', 'name address contact')
       .populate('appointment', 'appointmentDate appointmentTime reason symptoms');
 
     if (!prescription) {
@@ -104,8 +104,8 @@ router.get('/:id', auth, async (req, res) => {
     res.json({ prescription });
   } catch (error) {
     console.error('Get prescription error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -117,7 +117,7 @@ router.get('/:id', auth, async (req, res) => {
 router.post('/', auth, isDoctor, [
   body('patient').isMongoId().withMessage('Valid patient ID is required'),
   body('appointment').isMongoId().withMessage('Valid appointment ID is required'),
-  body('clinic').isMongoId().withMessage('Valid clinic ID is required'),
+  body('organization').isMongoId().withMessage('Valid organization ID is required'),
   body('diagnosis.primary').trim().notEmpty().withMessage('Primary diagnosis is required'),
   body('medications').isArray({ min: 1 }).withMessage('At least one medication is required'),
   body('medications.*.name').trim().notEmpty().withMessage('Medication name is required'),
@@ -139,7 +139,7 @@ router.post('/', auth, isDoctor, [
     const {
       patient,
       appointment,
-      clinic,
+      organization,
       diagnosis,
       medications,
       instructions = {},
@@ -164,10 +164,10 @@ router.post('/', auth, isDoctor, [
       return res.status(400).json({ message: 'Appointment not found or access denied' });
     }
 
-    // Verify clinic exists
-    const clinicExists = await Clinic.findOne({ _id: clinic, isActive: true });
-    if (!clinicExists) {
-      return res.status(400).json({ message: 'Clinic not found or inactive' });
+    // Verify organization exists
+    const organizationExists = await Organization.findOne({ _id: organization, isActive: true });
+    if (!organizationExists) {
+      return res.status(400).json({ message: 'Organization not found or inactive' });
     }
 
     // Create prescription
@@ -175,7 +175,7 @@ router.post('/', auth, isDoctor, [
       patient,
       doctor: req.user.userId,
       appointment,
-      clinic,
+      organization,
       diagnosis,
       medications,
       instructions,
@@ -204,8 +204,8 @@ router.post('/', auth, isDoctor, [
     });
   } catch (error) {
     console.error('Create prescription error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -265,8 +265,8 @@ router.put('/:id', auth, isDoctor, [
     });
   } catch (error) {
     console.error('Update prescription error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -280,7 +280,7 @@ router.get('/:id/pdf', auth, async (req, res) => {
     const prescription = await Prescription.findById(req.params.id)
       .populate('patient', 'name email phone dateOfBirth address')
       .populate('doctor', 'name email phone')
-      .populate('clinic', 'name address contact')
+      .populate('organization', 'name address contact')
       .populate('appointment', 'appointmentDate appointmentTime reason');
 
     if (!prescription) {
@@ -297,11 +297,11 @@ router.get('/:id/pdf', auth, async (req, res) => {
 
     // Create PDF
     const doc = new PDFDocument({ margin: 50 });
-    
+
     // Set response headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="prescription-${prescription.prescriptionNumber}.pdf"`);
-    
+
     // Pipe PDF to response
     doc.pipe(res);
 
@@ -310,13 +310,13 @@ router.get('/:id/pdf', auth, async (req, res) => {
     doc.fontSize(12).text(`Prescription #: ${prescription.prescriptionNumber}`, { align: 'center' });
     doc.moveDown();
 
-    // Clinic information
-    doc.fontSize(14).text('CLINIC INFORMATION', { underline: true });
-    doc.fontSize(12).text(`${prescription.clinic.name}`);
-    doc.text(`${prescription.clinic.address.street}`);
-    doc.text(`${prescription.clinic.address.city}, ${prescription.clinic.address.state} ${prescription.clinic.address.zipCode}`);
-    doc.text(`Phone: ${prescription.clinic.contact.phone}`);
-    doc.text(`Email: ${prescription.clinic.contact.email}`);
+    // Organization information
+    doc.fontSize(14).text('ORGANIZATION INFORMATION', { underline: true });
+    doc.fontSize(12).text(`${prescription.organization.name}`);
+    doc.text(`${prescription.organization.address.street}`);
+    doc.text(`${prescription.organization.address.city}, ${prescription.organization.address.state} ${prescription.organization.address.zipCode}`);
+    doc.text(`Phone: ${prescription.organization.contact.phone}`);
+    doc.text(`Email: ${prescription.organization.contact.email}`);
     doc.moveDown();
 
     // Doctor information
@@ -453,8 +453,8 @@ router.get('/:id/pdf', auth, async (req, res) => {
 
   } catch (error) {
     console.error('Generate PDF error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -477,8 +477,8 @@ router.delete('/:id', auth, isDoctor, async (req, res) => {
 
     // Check if prescription can be cancelled
     if (['completed', 'cancelled'].includes(prescription.status)) {
-      return res.status(400).json({ 
-        message: 'Cannot cancel a completed or already cancelled prescription' 
+      return res.status(400).json({
+        message: 'Cannot cancel a completed or already cancelled prescription'
       });
     }
 
@@ -489,8 +489,8 @@ router.delete('/:id', auth, isDoctor, async (req, res) => {
     res.json({ message: 'Prescription cancelled successfully' });
   } catch (error) {
     console.error('Cancel prescription error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

@@ -29,7 +29,7 @@ const UserSchema = new mongoose.Schema({
   organizationId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Organization',
-    required: function() {
+    required: function () {
       return this.role !== 'superadmin' && this.role !== 'patient';
     }
   },
@@ -71,7 +71,6 @@ const UserSchema = new mongoose.Schema({
     startDate: { type: Date, default: Date.now },
     prescribedBy: String
   }],
-  clinic: { type: mongoose.Schema.Types.ObjectId, ref: 'Clinic' },
   isActive: {
     type: Boolean,
     default: true
@@ -81,9 +80,9 @@ const UserSchema = new mongoose.Schema({
 });
 
 // Hash password before saving
-UserSchema.pre('save', async function(next) {
+UserSchema.pre('save', async function (next) {
   if (!this.isModified('password')) return next();
-  
+
   try {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
@@ -94,12 +93,12 @@ UserSchema.pre('save', async function(next) {
 });
 
 // Compare password method
-UserSchema.methods.comparePassword = async function(candidatePassword) {
+UserSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
 // Remove password from JSON output
-UserSchema.methods.toJSON = function() {
+UserSchema.methods.toJSON = function () {
   const user = this.toObject();
   delete user.password;
   return user;

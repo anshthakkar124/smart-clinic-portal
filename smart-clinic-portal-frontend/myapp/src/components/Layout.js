@@ -2,14 +2,14 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import NotificationBell from './NotificationBell';
-import { 
-  Home, 
-  User, 
-  Calendar, 
-  FileText, 
-  Stethoscope, 
-  Menu, 
-  X, 
+import {
+  Home,
+  User,
+  Calendar,
+  FileText,
+  Stethoscope,
+  Menu,
+  X,
   LogOut,
   Building2,
   Users
@@ -35,7 +35,6 @@ export const Layout = ({ children }) => {
           { name: 'Dashboard', href: '/dashboard', icon: Home },
           { name: 'Manage Doctors', href: '/manage-doctors', icon: Users },
           { name: 'Appointments', href: '/admin-appointments', icon: Calendar },
-          { name: 'Prescriptions', href: '/prescription-management', icon: FileText },
           { name: 'Clinic Settings', href: '/clinic-settings', icon: Building2 },
           { name: 'Profile', href: '/profile', icon: User },
         ];
@@ -89,11 +88,10 @@ export const Layout = ({ children }) => {
                 <Link
                   key={item.name}
                   to={item.href}
-                  className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors ${
-                    isActive(item.href)
+                  className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors ${isActive(item.href)
                       ? 'bg-primary-100 text-primary-700'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
+                    }`}
                 >
                   <Icon className="mr-3 h-5 w-5" />
                   {item.name}
@@ -117,11 +115,10 @@ export const Layout = ({ children }) => {
                 <Link
                   key={item.name}
                   to={item.href}
-                  className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors ${
-                    isActive(item.href)
+                  className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md transition-colors ${isActive(item.href)
                       ? 'bg-primary-100 text-primary-700'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`}
+                    }`}
                 >
                   <Icon className="mr-3 h-5 w-5" />
                   {item.name}

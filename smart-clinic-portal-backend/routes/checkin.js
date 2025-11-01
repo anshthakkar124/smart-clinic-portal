@@ -4,7 +4,7 @@ const { body, validationResult, query } = require('express-validator');
 const { auth, authorize, isOwnerOrAdmin } = require('../middleware/auth');
 const CheckIn = require('../models/CheckIn');
 const User = require('../models/User');
-const Clinic = require('../models/Clinic');
+const Organization = require('../models/Organization');
 const Appointment = require('../models/Appointment');
 
 // @route   GET /api/checkin
@@ -15,7 +15,7 @@ router.get('/', auth, [
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
   query('status').optional().isIn(['checked-in', 'waiting', 'in-consultation', 'completed', 'cancelled']),
   query('priority').optional().isIn(['low', 'medium', 'high', 'urgent']),
-  query('clinic').optional().isMongoId().withMessage('Valid clinic ID is required')
+  query('organization').optional().isMongoId().withMessage('Valid organization ID is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -32,7 +32,7 @@ router.get('/', auth, [
 
     // Build filter object
     const filter = {};
-    
+
     // Role-based filtering
     if (req.user.role === 'patient') {
       filter.patient = req.user.userId;
@@ -45,12 +45,12 @@ router.get('/', auth, [
     // Additional filters
     if (req.query.status) filter.status = req.query.status;
     if (req.query.priority) filter.priority = req.query.priority;
-    if (req.query.clinic) filter.clinic = req.query.clinic;
+    if (req.query.organization) filter.organization = req.query.organization;
 
     const checkIns = await CheckIn.find(filter)
       .populate('patient', 'name email phone dateOfBirth address emergencyContact')
       .populate('appointment', 'appointmentDate appointmentTime reason')
-      .populate('clinic', 'name address contact')
+      .populate('organization', 'name address contact')
       .populate('assignedStaff', 'name email phone')
       .sort({ checkInTime: -1 })
       .skip(skip)
@@ -70,8 +70,8 @@ router.get('/', auth, [
     });
   } catch (error) {
     console.error('Get check-ins error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -85,7 +85,7 @@ router.get('/:id', auth, async (req, res) => {
     const checkIn = await CheckIn.findById(req.params.id)
       .populate('patient', 'name email phone dateOfBirth address emergencyContact medicalHistory allergies currentMedications')
       .populate('appointment', 'appointmentDate appointmentTime reason symptoms')
-      .populate('clinic', 'name address contact')
+      .populate('organization', 'name address contact')
       .populate('assignedStaff', 'name email phone');
 
     if (!checkIn) {
@@ -100,8 +100,8 @@ router.get('/:id', auth, async (req, res) => {
     res.json({ checkIn });
   } catch (error) {
     console.error('Get check-in error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -111,7 +111,7 @@ router.get('/:id', auth, async (req, res) => {
 // @desc    Create new check-in
 // @access  Private
 router.post('/', auth, [
-  body('clinic').isMongoId().withMessage('Valid clinic ID is required'),
+  body('organization').isMongoId().withMessage('Valid organization ID is required'),
   body('chiefComplaint').trim().isLength({ min: 10, max: 500 }).withMessage('Chief complaint must be between 10 and 500 characters'),
   body('symptoms').optional().isArray(),
   body('symptoms.*.symptom').optional().trim().notEmpty().withMessage('Symptom description is required'),
@@ -134,7 +134,7 @@ router.post('/', auth, [
     }
 
     const {
-      clinic,
+      organization,
       appointment,
       chiefComplaint,
       symptoms = [],
@@ -147,10 +147,10 @@ router.post('/', auth, [
       priority = 'medium'
     } = req.body;
 
-    // Verify clinic exists
-    const clinicExists = await Clinic.findOne({ _id: clinic, isActive: true });
-    if (!clinicExists) {
-      return res.status(400).json({ message: 'Clinic not found or inactive' });
+    // Verify organization exists
+    const organizationExists = await Organization.findOne({ _id: organization, isActive: true });
+    if (!organizationExists) {
+      return res.status(400).json({ message: 'Organization not found or inactive' });
     }
 
     // Verify appointment if provided
@@ -167,7 +167,7 @@ router.post('/', auth, [
     // Create check-in
     const checkIn = new CheckIn({
       patient: req.user.userId,
-      clinic,
+      organization,
       appointment,
       chiefComplaint,
       symptoms,
@@ -195,8 +195,8 @@ router.post('/', auth, [
     });
   } catch (error) {
     console.error('Create check-in error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -268,29 +268,29 @@ router.put('/:id', auth, [
     });
   } catch (error) {
     console.error('Update check-in error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
 
-// @route   GET /api/checkin/waiting-list/:clinicId
-// @desc    Get waiting list for a clinic
+// @route   GET /api/checkin/waiting-list/:organizationId
+// @desc    Get waiting list for an organization
 // @access  Private
-router.get('/waiting-list/:clinicId', auth, async (req, res) => {
+router.get('/waiting-list/:organizationId', auth, async (req, res) => {
   try {
-    const { clinicId } = req.params;
+    const { organizationId } = req.params;
 
-    // Verify clinic exists
-    const clinic = await Clinic.findById(clinicId);
-    if (!clinic) {
-      return res.status(404).json({ message: 'Clinic not found' });
+    // Verify organization exists
+    const organization = await Organization.findById(organizationId);
+    if (!organization) {
+      return res.status(404).json({ message: 'Organization not found' });
     }
 
     // Get waiting patients
     const waitingList = await CheckIn.find({
-      clinic: clinicId,
+      organization: organizationId,
       status: { $in: ['checked-in', 'waiting', 'in-consultation'] }
     })
       .populate('patient', 'name email phone')
@@ -308,14 +308,14 @@ router.get('/waiting-list/:clinicId', auth, async (req, res) => {
     });
 
     res.json({
-      clinic: clinic.name,
+      organization: organization.name,
       waitingList: waitingListWithWaitTimes,
       totalWaiting: waitingList.length
     });
   } catch (error) {
     console.error('Get waiting list error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -338,8 +338,8 @@ router.delete('/:id', auth, async (req, res) => {
 
     // Check if check-in can be cancelled
     if (['completed', 'cancelled'].includes(checkIn.status)) {
-      return res.status(400).json({ 
-        message: 'Cannot cancel a completed or already cancelled check-in' 
+      return res.status(400).json({
+        message: 'Cannot cancel a completed or already cancelled check-in'
       });
     }
 
@@ -351,8 +351,8 @@ router.delete('/:id', auth, async (req, res) => {
     res.json({ message: 'Check-in cancelled successfully' });
   } catch (error) {
     console.error('Cancel check-in error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    res.status(500).json({
+      message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

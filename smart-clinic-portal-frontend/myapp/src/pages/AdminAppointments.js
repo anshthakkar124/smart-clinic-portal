@@ -1,19 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { appointmentsAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import {
   Calendar,
-  Clock,
   CheckCircle,
   XCircle,
-  Search,
-  Filter,
   Loader2,
   User,
   Stethoscope,
-  Activity,
-  Eye,
+  AlertCircle,
   X
 } from 'lucide-react';
 
@@ -32,71 +28,12 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-const StatCard = ({ title, value, icon: Icon, accent }) => (
-  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-    <div className="flex items-center">
-      <div className={`p-3 rounded-full bg-${accent}-100`}>
-        <Icon className={`h-6 w-6 text-${accent}-600`} />
-      </div>
-      <div className="ml-4">
-        <p className="text-sm text-gray-500">{title}</p>
-        <p className="text-2xl font-semibold text-gray-900">{value}</p>
-      </div>
-    </div>
-  </div>
-);
-
-const BarChart = ({ data }) => {
-  const max = Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div className="h-56 flex items-end gap-3">
-      {data.map((item) => (
-        <div key={item.label} className="flex-1 flex flex-col items-center">
-          <div
-            className="w-full max-w-[36px] bg-gradient-to-t from-primary-500 to-primary-300 rounded-t-lg"
-            style={{ height: `${(item.value / max) * 100}%` }}
-          />
-          <span className="mt-3 text-xs font-medium text-gray-600 capitalize">{item.label}</span>
-          <span className="text-xs text-gray-500">{item.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const LineTrend = ({ data }) => {
-  const max = Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div className="h-56 flex items-end gap-4">
-      {data.map((point) => (
-        <div key={point.label} className="flex-1 flex flex-col items-center">
-          <div className="relative w-full flex justify-center">
-            <div
-              className="w-1 rounded-full bg-primary-400"
-              style={{ height: `${(point.value / max) * 100}%` }}
-            />
-            <div className="absolute -top-2 h-2 w-2 rounded-full bg-primary-600" />
-          </div>
-          <span className="mt-3 text-xs font-medium text-gray-600">{point.label}</span>
-          <span className="text-xs text-gray-500">{point.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
 const AdminAppointments = () => {
   const { user } = useAuth();
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({
-    search: '',
-    status: 'all',
-    doctor: 'all',
-    date: ''
-  });
-  const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [updating, setUpdating] = useState(false);
+  const [rejectModal, setRejectModal] = useState({ open: false, appointment: null, reason: '' });
 
   useEffect(() => {
     if (user?.organizationId) {
@@ -108,6 +45,11 @@ const AdminAppointments = () => {
   const fetchAppointments = async () => {
     setLoading(true);
     try {
+      if (!user?.organizationId) {
+        toast.error('No organization assigned. Please contact support.');
+        setLoading(false);
+        return;
+      }
       const res = await appointmentsAPI.getAll({ organizationId: user.organizationId, limit: 200 });
       const list = Array.isArray(res.data)
         ? res.data
@@ -115,82 +57,72 @@ const AdminAppointments = () => {
           ? res.data.appointments
           : [];
       setAppointments(list);
+      console.log('Fetched appointments:', list.length);
     } catch (error) {
       console.error('Fetch appointments error:', error);
-      toast.error('Failed to load appointments');
+      console.error('Error response:', error.response?.data);
+      toast.error(error.response?.data?.message || 'Failed to load appointments');
     } finally {
       setLoading(false);
     }
   };
 
-  const statusCounts = useMemo(() => {
-    const counts = { total: appointments.length, pending: 0, scheduled: 0, completed: 0, cancelled: 0 };
-    appointments.forEach((apt) => {
-      if (counts[apt.status] !== undefined) {
-        counts[apt.status] += 1;
-      }
-    });
-    return counts;
-  }, [appointments]);
-
-  const doctors = useMemo(() => {
-    const map = new Map();
-    appointments.forEach((apt) => {
-      if (apt.doctor?._id) {
-        map.set(apt.doctor._id, apt.doctor.name || 'Doctor');
-      }
-    });
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [appointments]);
-
-  const filteredAppointments = useMemo(() => {
-    return appointments.filter((apt) => {
-      const matchesStatus = filters.status === 'all' ? true : apt.status === filters.status;
-      const matchesDoctor = filters.doctor === 'all' ? true : apt.doctor?._id === filters.doctor;
-      const matchesDate = filters.date ? new Date(apt.date).toDateString() === new Date(filters.date).toDateString() : true;
-      const matchesSearch = filters.search
-        ? [apt.patient?.name, apt.doctor?.name, apt.reason, apt.organization?.name]
-            .filter(Boolean)
-            .some((value) => value.toLowerCase().includes(filters.search.toLowerCase()))
-        : true;
-      return matchesStatus && matchesDoctor && matchesDate && matchesSearch;
-    });
-  }, [appointments, filters]);
-
-  const statusChartData = useMemo(() => (
-    ['pending', 'scheduled', 'completed', 'cancelled'].map((status) => ({
-      label: status,
-      value: appointments.filter((apt) => apt.status === status).length
-    }))
-  ), [appointments]);
-
-  const trendChartData = useMemo(() => {
-    const days = Array.from({ length: 7 }).map((_, idx) => {
-      const date = new Date();
-      date.setDate(date.getDate() - (6 - idx));
-      const label = `${date.getMonth() + 1}/${date.getDate()}`;
-      const value = appointments.filter((apt) => {
-        const aptDate = new Date(apt.date);
-        return aptDate.toDateString() === date.toDateString();
-      }).length;
-      return { label, value };
-    });
-    return days;
-  }, [appointments]);
-
-  const handleStatusUpdate = async (appointment, status) => {
+  const handleApprove = async (appointment) => {
     setUpdating(true);
     try {
-      await appointmentsAPI.update(appointment._id, { status });
-      toast.success(`Appointment ${status}`);
-      setSelectedAppointment(null);
+      await appointmentsAPI.update(appointment._id, { status: 'scheduled' });
+      toast.success('Appointment approved successfully');
       fetchAppointments();
     } catch (error) {
-      console.error('Update appointment status error:', error);
-      toast.error('Unable to update appointment');
+      console.error('Approve appointment error:', error);
+      toast.error('Failed to approve appointment');
     } finally {
       setUpdating(false);
     }
+  };
+
+  const handleReject = async () => {
+    if (!rejectModal.reason.trim()) {
+      toast.error('Please provide a reason for rejection');
+      return;
+    }
+
+    setUpdating(true);
+    try {
+      await appointmentsAPI.update(rejectModal.appointment._id, {
+        status: 'rejected',
+        rejectionReason: rejectModal.reason
+      });
+      toast.success('Appointment rejected');
+      setRejectModal({ open: false, appointment: null, reason: '' });
+      fetchAppointments();
+    } catch (error) {
+      console.error('Reject appointment error:', error);
+      toast.error('Failed to reject appointment');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  // Helper to get date/time from appointment
+  const getAppointmentDate = (apt) => {
+    if (apt.date) return new Date(apt.date);
+    if (apt.appointmentDate) return new Date(apt.appointmentDate);
+    return new Date();
+  };
+
+  const getAppointmentTime = (apt) => {
+    if (apt.startTime && apt.endTime) return `${apt.startTime} - ${apt.endTime}`;
+    if (apt.appointmentTime) {
+      const start = apt.appointmentTime;
+      const duration = apt.duration || 30;
+      const [hours, mins] = start.split(':');
+      const endTime = new Date();
+      endTime.setHours(parseInt(hours), parseInt(mins) + duration);
+      const endStr = `${endTime.getHours().toString().padStart(2, '0')}:${endTime.getMinutes().toString().padStart(2, '0')}`;
+      return `${start} - ${endStr}`;
+    }
+    return 'N/A';
   };
 
   return (
@@ -199,105 +131,24 @@ const AdminAppointments = () => {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Appointments</h1>
-            <p className="text-sm text-gray-500 mt-1">Monitor and manage every appointment across your clinic.</p>
+            <p className="text-sm text-gray-500 mt-1">Review and manage all appointment requests.</p>
           </div>
-          <div className="flex items-center gap-3 text-sm text-gray-500">
-            <Calendar className="h-4 w-4" />
-            Updated {new Date().toLocaleTimeString()}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-        <StatCard title="Total" value={statusCounts.total} icon={Calendar} accent="blue" />
-        <StatCard title="Pending" value={statusCounts.pending} icon={Clock} accent="yellow" />
-        <StatCard title="Scheduled" value={statusCounts.scheduled} icon={Activity} accent="indigo" />
-        <StatCard title="Completed" value={statusCounts.completed} icon={CheckCircle} accent="green" />
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-          <div className="relative lg:col-span-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input
-              type="text"
-              className="input-field pl-10"
-              placeholder="Search by patient, doctor, reason or organization"
-              value={filters.search}
-              onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
-            />
-          </div>
-          <select
-            className="input-field"
-            value={filters.status}
-            onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
-          >
-            <option value="all">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="rejected">Rejected</option>
-          </select>
-          <select
-            className="input-field"
-            value={filters.doctor}
-            onChange={(e) => setFilters((prev) => ({ ...prev, doctor: e.target.value }))}
-          >
-            <option value="all">All doctors</option>
-            {doctors.map((doc) => (
-              <option key={doc.id} value={doc.id}>{doc.name}</option>
-            ))}
-          </select>
-          <input
-            type="date"
-            className="input-field"
-            value={filters.date}
-            onChange={(e) => setFilters((prev) => ({ ...prev, date: e.target.value }))}
-          />
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button
-            onClick={() => setFilters({ search: '', status: 'all', doctor: 'all', date: '' })}
-            className="btn-secondary inline-flex items-center"
-          >
-            <Filter className="h-4 w-4 mr-2" />
-            Clear filters
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Appointments by status</h3>
-            <span className="text-xs text-gray-500">Current snapshot</span>
-          </div>
-          <BarChart data={statusChartData} />
-        </div>
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">7 day trend</h3>
-            <span className="text-xs text-gray-500">Daily volume</span>
-          </div>
-          <LineTrend data={trendChartData} />
         </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Appointments ({filteredAppointments.length})</h3>
-          <p className="text-xs text-gray-500">Showing most recent activity</p>
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">All Appointments ({appointments.length})</h3>
         </div>
         <div className="overflow-x-auto">
           {loading ? (
             <div className="flex items-center justify-center h-60">
               <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
             </div>
-          ) : filteredAppointments.length === 0 ? (
+          ) : appointments.length === 0 ? (
             <div className="py-16 text-center text-gray-500">
               <Calendar className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-              <p>No appointments match your filters.</p>
+              <p>No appointments found.</p>
             </div>
           ) : (
             <table className="min-w-full divide-y divide-gray-200">
@@ -306,12 +157,13 @@ const AdminAppointments = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Patient</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Doctor</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Schedule</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3" />
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredAppointments.map((apt) => (
+                {appointments.map((apt) => (
                   <tr key={apt._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -320,7 +172,7 @@ const AdminAppointments = () => {
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{apt.patient?.name || 'Patient'}</p>
-                          <p className="text-xs text-gray-500">{apt.reason || 'No reason provided'}</p>
+                          <p className="text-xs text-gray-500">{apt.patient?.email || ''}</p>
                         </div>
                       </div>
                     </td>
@@ -331,24 +183,54 @@ const AdminAppointments = () => {
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-900">{apt.doctor?.name || 'Unassigned'}</p>
-                          <p className="text-xs text-gray-500">{apt.organization?.name}</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
-                      <p>{new Date(apt.date).toLocaleDateString()}</p>
-                      <p className="text-xs text-gray-500">{apt.startTime} - {apt.endTime}</p>
+                      <p>{getAppointmentDate(apt).toLocaleDateString()}</p>
+                      <p className="text-xs text-gray-500">{getAppointmentTime(apt)}</p>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="text-sm text-gray-900">{apt.reason || 'No reason provided'}</p>
                     </td>
                     <td className="px-6 py-4">
                       <StatusBadge status={apt.status} />
+                      {apt.rejectionReason && apt.status === 'rejected' && (
+                        <p className="text-xs text-red-600 mt-1" title={apt.rejectionReason}>
+                          <AlertCircle className="h-3 w-3 inline mr-1" />
+                          Rejected
+                        </p>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right text-sm">
-                      <button
-                        onClick={() => setSelectedAppointment(apt)}
-                        className="text-blue-600 hover:text-blue-800 inline-flex items-center"
-                      >
-                        <Eye className="h-4 w-4 mr-1" /> View
-                      </button>
+                      {apt.status === 'pending' && (
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleApprove(apt)}
+                            disabled={updating}
+                            className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {updating ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <CheckCircle className="h-3 w-3 mr-1" />}
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => setRejectModal({ open: true, appointment: apt, reason: '' })}
+                            disabled={updating}
+                            className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Reject
+                          </button>
+                        </div>
+                      )}
+                      {apt.status === 'rejected' && apt.rejectionReason && (
+                        <button
+                          onClick={() => setRejectModal({ open: true, appointment: apt, reason: apt.rejectionReason })}
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                        >
+                          View reason
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -358,73 +240,63 @@ const AdminAppointments = () => {
         </div>
       </div>
 
-      {selectedAppointment && (
+      {/* Rejection Reason Modal */}
+      {rejectModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Appointment details</h3>
-              <button onClick={() => setSelectedAppointment(null)} className="text-gray-400 hover:text-gray-600">
+              <h3 className="text-lg font-semibold text-gray-900">Reject Appointment</h3>
+              <button
+                onClick={() => setRejectModal({ open: false, appointment: null, reason: '' })}
+                className="text-gray-400 hover:text-gray-600"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="space-y-4 text-sm text-gray-600">
-              <div>
-                <p className="text-xs uppercase text-gray-500">Patient</p>
-                <p className="font-medium text-gray-900">{selectedAppointment.patient?.name}</p>
-                <p>{selectedAppointment.patient?.email}</p>
+            {rejectModal.appointment && (
+              <div className="mb-4 p-3 bg-gray-50 rounded-md">
+                <p className="text-sm text-gray-600">
+                  <span className="font-medium">Patient:</span> {rejectModal.appointment.patient?.name}
+                </p>
+                <p className="text-sm text-gray-600">
+                  <span className="font-medium">Date:</span> {getAppointmentDate(rejectModal.appointment).toLocaleDateString()}
+                </p>
               </div>
-              <div>
-                <p className="text-xs uppercase text-gray-500">Doctor</p>
-                <p className="font-medium text-gray-900">{selectedAppointment.doctor?.name}</p>
-                <p>{selectedAppointment.organization?.name}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs uppercase text-gray-500">Date</p>
-                  <p>{new Date(selectedAppointment.date).toLocaleDateString()}</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase text-gray-500">Time</p>
-                  <p>{selectedAppointment.startTime} - {selectedAppointment.endTime}</p>
-                </div>
-              </div>
-              <div>
-                <p className="text-xs uppercase text-gray-500">Reason</p>
-                <p>{selectedAppointment.reason || 'No additional details provided.'}</p>
-              </div>
-              {selectedAppointment.notes && (
-                <div>
-                  <p className="text-xs uppercase text-gray-500">Notes</p>
-                  <p>{selectedAppointment.notes}</p>
-                </div>
-              )}
+            )}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Reason for Rejection <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                placeholder="Please provide a reason for rejecting this appointment..."
+                value={rejectModal.reason}
+                onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
+              />
+              <p className="text-xs text-gray-500 mt-1">This reason will be visible to the patient.</p>
             </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setSelectedAppointment(null)} className="btn-secondary">Close</button>
-              {['pending', 'scheduled'].includes(selectedAppointment.status) && (
-                <>
-                  {selectedAppointment.status !== 'completed' && (
-                    <button
-                      disabled={updating}
-                      onClick={() => handleStatusUpdate(selectedAppointment, 'completed')}
-                      className="btn-primary inline-flex items-center"
-                    >
-                      {updating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-                      Mark completed
-                    </button>
-                  )}
-                  {selectedAppointment.status !== 'cancelled' && (
-                    <button
-                      disabled={updating}
-                      onClick={() => handleStatusUpdate(selectedAppointment, 'cancelled')}
-                      className="btn-danger inline-flex items-center"
-                    >
-                      {updating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <XCircle className="h-4 w-4 mr-2" />}
-                      Cancel
-                    </button>
-                  )}
-                </>
-              )}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setRejectModal({ open: false, appointment: null, reason: '' })}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={updating || !rejectModal.reason.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center"
+              >
+                {updating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Rejecting...
+                  </>
+                ) : (
+                  'Reject Appointment'
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -434,4 +306,3 @@ const AdminAppointments = () => {
 };
 
 export default AdminAppointments;
-

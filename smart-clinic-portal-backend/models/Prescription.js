@@ -16,9 +16,9 @@ const PrescriptionSchema = new mongoose.Schema({
     ref: 'Appointment',
     required: true
   },
-  clinic: {
+  organization: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Clinic',
+    ref: 'Organization',
     required: true
   },
   prescriptionNumber: {
@@ -103,7 +103,7 @@ const PrescriptionSchema = new mongoose.Schema({
   validUntil: {
     type: Date,
     required: true,
-    default: function() {
+    default: function () {
       const date = new Date();
       date.setDate(date.getDate() + 30); // 30 days from now
       return date;
@@ -124,7 +124,7 @@ const PrescriptionSchema = new mongoose.Schema({
 });
 
 // Generate prescription number before saving
-PrescriptionSchema.pre('save', function(next) {
+PrescriptionSchema.pre('save', function (next) {
   if (!this.prescriptionNumber) {
     const timestamp = Date.now().toString();
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
@@ -140,17 +140,17 @@ PrescriptionSchema.index({ prescriptionNumber: 1 });
 PrescriptionSchema.index({ status: 1 });
 
 // Method to check if prescription is valid
-PrescriptionSchema.methods.isValid = function() {
+PrescriptionSchema.methods.isValid = function () {
   return this.status === 'active' && new Date() <= this.validUntil;
 };
 
 // Method to check if prescription is expired
-PrescriptionSchema.methods.isExpired = function() {
+PrescriptionSchema.methods.isExpired = function () {
   return new Date() > this.validUntil;
 };
 
 // Virtual for prescription age in days
-PrescriptionSchema.virtual('ageInDays').get(function() {
+PrescriptionSchema.virtual('ageInDays').get(function () {
   const now = new Date();
   const created = new Date(this.createdAt);
   return Math.floor((now - created) / (1000 * 60 * 60 * 24));
