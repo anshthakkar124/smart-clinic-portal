@@ -159,8 +159,8 @@ const PrescriptionManagement = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Filters */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="relative">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="relative flex-1 md:flex-initial md:w-48">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
@@ -173,7 +173,7 @@ const PrescriptionManagement = () => {
             <select
               value={filters.status}
               onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-              className="input-field"
+              className="input-field flex-1 md:flex-initial md:w-48"
             >
               <option value="">All Status</option>
               <option value="active">Active</option>
@@ -184,14 +184,14 @@ const PrescriptionManagement = () => {
               type="date"
               value={filters.date}
               onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
-              className="input-field"
+              className="input-field flex-1 md:flex-initial md:w-48"
             />
             <button 
               onClick={() => setFilters({ status: '', date: '', search: '' })}
-              className="btn-secondary"
+              className="btn-secondary whitespace-nowrap inline-flex items-center justify-center"
             >
-              <Filter className="h-4 w-4 mr-2" />
-              Clear Filters
+              <Filter className="h-4 w-4 mr-2 flex-shrink-0" />
+              <span>Clear Filters</span>
             </button>
           </div>
         </div>

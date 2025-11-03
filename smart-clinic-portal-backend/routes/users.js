@@ -18,17 +18,15 @@ router.get('/', auth, [
 
     const filter = {};
 
-    // Restrict admins and doctors to their organization
-    if (['admin', 'doctor'].includes(req.user.role) && req.userData?.organizationId) {
-      filter.organizationId = req.userData.organizationId._id;
-    }
-
-    if (req.query.organizationId) {
-      filter.organizationId = req.query.organizationId;
-    }
-
     if (req.query.role) {
       filter.role = req.query.role;
+    }
+
+    // Apply organization filter only if not requesting patients (since patients don't have organizationId)
+    if (req.query.organizationId && req.query.role !== 'patient') {
+      filter.organizationId = req.query.organizationId;
+    } else if (['admin', 'doctor'].includes(req.user.role) && req.userData?.organizationId && (!req.query.role || req.query.role !== 'patient')) {
+      filter.organizationId = req.userData.organizationId._id;
     }
 
     if (req.query.isActive !== undefined) {

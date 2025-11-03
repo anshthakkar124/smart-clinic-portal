@@ -46,6 +46,22 @@ const ClinicSettings = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.organizationId]);
 
+  // Helper function to convert array (of strings or objects) to comma-separated string
+  const arrayToString = (arr) => {
+    if (!Array.isArray(arr)) return '';
+    return arr
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (typeof item === 'object' && item !== null) {
+          // Try common property names that might contain the service/specialty name
+          return item.name || item.title || item.label || item.value || String(item);
+        }
+        return String(item);
+      })
+      .filter(Boolean)
+      .join(', ');
+  };
+
   const fetchOrganization = async () => {
     setLoading(true);
     try {
@@ -73,8 +89,8 @@ const ClinicSettings = () => {
             state: org.address?.state || '',
             zipCode: org.address?.zipCode || ''
           },
-          specialties: Array.isArray(org.specialties) ? org.specialties.join(', ') : '',
-          services: Array.isArray(org.services) ? org.services.join(', ') : ''
+          specialties: arrayToString(org.specialties),
+          services: arrayToString(org.services)
         });
       } else {
         toast.error('Organization not found');

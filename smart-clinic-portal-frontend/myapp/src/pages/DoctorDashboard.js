@@ -130,13 +130,13 @@ const DoctorDashboard = () => {
               </p>
             </div>
             <div className="flex space-x-3">
-              <Link to="/prescription-management" className="btn-secondary">
-                <FileText className="h-4 w-4 mr-2" />
-                My Prescriptions
+              <Link to="/prescription-management" className="btn-secondary inline-flex items-center">
+                <FileText className="h-4 w-4 mr-2 flex-shrink-0" />
+                <span>My Prescriptions</span>
               </Link>
-              <Link to="/create-prescription" className="btn-primary">
-                <Plus className="h-4 w-4 mr-2" />
-                New Prescription
+              <Link to="/create-prescription" className="btn-primary inline-flex items-center">
+                <Plus className="h-4 w-4 mr-2 flex-shrink-0" />
+                <span>New Prescription</span>
               </Link>
             </div>
           </div>

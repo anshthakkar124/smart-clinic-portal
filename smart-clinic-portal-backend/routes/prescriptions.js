@@ -114,18 +114,15 @@ router.get('/:id', auth, async (req, res) => {
 // @route   POST /api/prescriptions
 // @desc    Create new prescription
 // @access  Private (Doctor only)
-router.post('/', auth, isDoctor, [
-  body('patient').isMongoId().withMessage('Valid patient ID is required'),
-  body('appointment').isMongoId().withMessage('Valid appointment ID is required'),
+router.post('/', auth, [
+  body('doctor').isMongoId().withMessage('Valid doctor ID is required'),
   body('organization').isMongoId().withMessage('Valid organization ID is required'),
-  body('diagnosis.primary').trim().notEmpty().withMessage('Primary diagnosis is required'),
-  body('medications').isArray({ min: 1 }).withMessage('At least one medication is required'),
-  body('medications.*.name').trim().notEmpty().withMessage('Medication name is required'),
-  body('medications.*.dosage').trim().notEmpty().withMessage('Medication dosage is required'),
-  body('medications.*.frequency').trim().notEmpty().withMessage('Medication frequency is required'),
-  body('medications.*.duration').trim().notEmpty().withMessage('Medication duration is required'),
-  body('medications.*.instructions').trim().notEmpty().withMessage('Medication instructions are required'),
-  body('medications.*.quantity').isInt({ min: 1 }).withMessage('Medication quantity must be at least 1')
+  body('appointmentDate').isISO8601().withMessage('Valid appointment date is required'),
+  body('appointmentTime').notEmpty().withMessage('Appointment time is required'),
+  body('reason').trim().isLength({ min: 10, max: 500 }).withMessage('Reason must be between 10 and 500 characters'),
+  body('type').optional().isIn(['consultation', 'follow-up', 'emergency', 'routine-checkup', 'vaccination']),
+  body('symptoms').optional().isArray(),
+  body('notes').optional().isLength({ max: 1000 }).withMessage('Notes cannot exceed 1000 characters')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -137,79 +134,89 @@ router.post('/', auth, isDoctor, [
     }
 
     const {
-      patient,
-      appointment,
+      doctor,
       organization,
-      diagnosis,
-      medications,
-      instructions = {},
-      labTests = [],
-      imaging = [],
-      followUp = {}
+      appointmentDate,
+      appointmentTime,
+      reason,
+      type = 'consultation',
+      symptoms = [],
+      notes,
+      duration = 30
     } = req.body;
 
-    // Verify patient exists
-    const patientExists = await User.findOne({ _id: patient, role: 'patient', isActive: true });
-    if (!patientExists) {
-      return res.status(400).json({ message: 'Patient not found or inactive' });
+    // Verify doctor exists and is active
+    const doctorExists = await User.findOne({ _id: doctor, role: 'doctor', isActive: true });
+    if (!doctorExists) {
+      return res.status(400).json({ message: 'Doctor not found or inactive' });
     }
 
-    // Verify appointment exists and belongs to the doctor
-    const appointmentExists = await Appointment.findOne({
-      _id: appointment,
-      doctor: req.user.userId,
-      patient: patient
-    });
-    if (!appointmentExists) {
-      return res.status(400).json({ message: 'Appointment not found or access denied' });
-    }
-
-    // Verify organization exists
+    // Verify organization exists and is active
     const organizationExists = await Organization.findOne({ _id: organization, isActive: true });
     if (!organizationExists) {
       return res.status(400).json({ message: 'Organization not found or inactive' });
     }
 
-    // Create prescription
-    const prescription = new Prescription({
-      patient,
-      doctor: req.user.userId,
-      appointment,
-      organization,
-      diagnosis,
-      medications,
-      instructions,
-      labTests,
-      imaging,
-      followUp
+    // Check for conflicting appointments
+    const appointmentDateTime = new Date(`${appointmentDate}T${appointmentTime}`);
+    const endTime = new Date(appointmentDateTime.getTime() + duration * 60000);
+
+    const conflictingAppointment = await Appointment.findOne({
+      doctor,
+      appointmentDate: new Date(appointmentDate),
+      $or: [
+        {
+          appointmentTime: {
+            $gte: appointmentTime,
+            $lt: endTime.toTimeString().slice(0, 5)
+          }
+        }
+      ],
+      status: { $in: ['scheduled', 'confirmed', 'in-progress'] }
     });
 
-    await prescription.save();
+    if (conflictingAppointment) {
+      return res.status(400).json({
+        message: 'Doctor has a conflicting appointment at this time'
+      });
+    }
 
-    // Update appointment with prescription reference
-    appointmentExists.prescription = prescription._id;
-    await appointmentExists.save();
+    // Create appointment
+    const appointment = new Appointment({
+      patient: req.user.userId,
+      doctor,
+      organization,
+      appointmentDate: new Date(appointmentDate),
+      appointmentTime,
+      duration,
+      reason,
+      type,
+      symptoms,
+      notes
+    });
 
-    // Populate the prescription for response
-    await prescription.populate([
-      { path: 'patient', select: 'name email phone dateOfBirth address' },
+    await appointment.save();
+
+    // Populate the appointment for response
+    await appointment.populate([
+      { path: 'patient', select: 'name email phone' },
       { path: 'doctor', select: 'name email phone' },
-      { path: 'clinic', select: 'name address contact' },
-      { path: 'appointment', select: 'appointmentDate appointmentTime reason' }
+      { path: 'organization', select: 'name address contact' }
     ]);
 
     res.status(201).json({
-      message: 'Prescription created successfully',
-      prescription
+      message: 'Appointment created successfully',
+      appointment
     });
   } catch (error) {
-    console.error('Create prescription error:', error);
+    console.error('Create appointment error:', error);
     res.status(500).json({
       message: 'Server error',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 });
+
 
 // @route   PUT /api/prescriptions/:id
 // @desc    Update prescription

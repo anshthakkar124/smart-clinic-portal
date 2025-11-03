@@ -68,9 +68,11 @@ const AppointmentManagement = () => {
     }
 
     if (filters.date) {
-      filtered = filtered.filter(apt => 
-        new Date(apt.date).toDateString() === new Date(filters.date).toDateString()
-      );
+      filtered = filtered.filter(apt => {
+        const aptDate = apt.appointmentDate ? new Date(apt.appointmentDate) : (apt.date ? new Date(apt.date) : null);
+        if (!aptDate) return false;
+        return aptDate.toDateString() === new Date(filters.date).toDateString();
+      });
     }
 
     if (filters.search) {
@@ -178,8 +180,8 @@ const AppointmentManagement = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Filters */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="relative">
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="relative flex-1 md:flex-initial md:w-48">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
@@ -192,7 +194,7 @@ const AppointmentManagement = () => {
             <select
               value={filters.status}
               onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-              className="input-field"
+              className="input-field flex-1 md:flex-initial md:w-48"
             >
               <option value="">All Status</option>
               <option value="pending">Pending</option>
@@ -205,11 +207,14 @@ const AppointmentManagement = () => {
               type="date"
               value={filters.date}
               onChange={(e) => setFilters(prev => ({ ...prev, date: e.target.value }))}
-              className="input-field"
+              className="input-field flex-1 md:flex-initial md:w-48"
             />
-            <button className="btn-secondary">
-              <Filter className="h-4 w-4 mr-2" />
-              Clear Filters
+            <button 
+              onClick={() => setFilters({ status: '', date: '', search: '' })}
+              className="btn-secondary whitespace-nowrap inline-flex items-center justify-center"
+            >
+              <Filter className="h-4 w-4 mr-2 flex-shrink-0" />
+              <span>Clear Filters</span>
             </button>
           </div>
         </div>
@@ -250,7 +255,10 @@ const AppointmentManagement = () => {
                                   }
                                 </p>
                                 <p className="text-sm text-gray-500">
-                                  {new Date(appointment.date).toLocaleDateString()} at {appointment.startTime}
+                                  {(() => {
+                                    const aptDate = appointment.appointmentDate ? new Date(appointment.appointmentDate) : (appointment.date ? new Date(appointment.date) : new Date());
+                                    return aptDate.toLocaleDateString();
+                                  })()} at {appointment.startTime || appointment.appointmentTime || 'N/A'}
                                 </p>
                               </div>
                               <div>
@@ -389,10 +397,13 @@ const AppointmentManagement = () => {
                   <span className="font-medium">Organization:</span> {selectedAppointment.organization?.name}
                 </div>
                 <div>
-                  <span className="font-medium">Date:</span> {new Date(selectedAppointment.date).toLocaleDateString()}
+                  <span className="font-medium">Date:</span> {(() => {
+                    const aptDate = selectedAppointment.appointmentDate ? new Date(selectedAppointment.appointmentDate) : (selectedAppointment.date ? new Date(selectedAppointment.date) : new Date());
+                    return aptDate.toLocaleDateString();
+                  })()}
                 </div>
                 <div>
-                  <span className="font-medium">Time:</span> {selectedAppointment.startTime} - {selectedAppointment.endTime}
+                  <span className="font-medium">Time:</span> {selectedAppointment.startTime || selectedAppointment.appointmentTime || 'N/A'} - {selectedAppointment.endTime || 'N/A'}
                 </div>
                 <div>
                   <span className="font-medium">Reason:</span> {selectedAppointment.reason}
