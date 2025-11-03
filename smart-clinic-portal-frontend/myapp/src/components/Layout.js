@@ -51,7 +51,6 @@ export const Layout = ({ children }) => {
           { name: 'Dashboard', href: '/dashboard', icon: Home },
           { name: 'Self Check', href: '/self-check', icon: Stethoscope },
           { name: 'Appointments', href: '/appointments', icon: Calendar },
-          { name: 'Prescriptions', href: '/prescriptions', icon: FileText },
           { name: 'Profile', href: '/profile', icon: User },
         ];
     }

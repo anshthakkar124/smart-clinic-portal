@@ -163,9 +163,49 @@ const SelfCheckInForm = () => {
   const onSubmit = async (data) => {
     setSubmitting(true);
     try {
+      // Prepare minimal valid payload: drop empty items, coerce booleans, compute risk
+      const cleaned = { ...data };
+
+      // Normalize radio boolean strings to booleans where used
+      const normalizeBool = (v) => (v === true || v === false) ? v : (String(v).toLowerCase() === 'true');
+      cleaned.covidScreening = {
+        ...cleaned.covidScreening,
+        hasSymptoms: normalizeBool(cleaned.covidScreening?.hasSymptoms),
+        hasBeenExposed: normalizeBool(cleaned.covidScreening?.hasBeenExposed),
+        hasTestedPositive: normalizeBool(cleaned.covidScreening?.hasTestedPositive),
+        isVaccinated: normalizeBool(cleaned.covidScreening?.isVaccinated),
+      };
+      cleaned.emergencyInfo = {
+        ...cleaned.emergencyInfo,
+        hasEmergencySymptoms: normalizeBool(cleaned.emergencyInfo?.hasEmergencySymptoms),
+        needsImmediateAttention: normalizeBool(cleaned.emergencyInfo?.needsImmediateAttention),
+      };
+
+      // Filter arrays to only include filled entries
+      const nonEmpty = (obj) => Object.values(obj || {}).some((v) => (typeof v === 'string' ? v.trim() !== '' : v !== undefined && v !== null));
+      cleaned.basicInfo = {
+        ...cleaned.basicInfo,
+        currentSymptoms: (cleaned.basicInfo?.currentSymptoms || []).filter((s) => nonEmpty(s) && s.symptom),
+        currentMedications: (cleaned.basicInfo?.currentMedications || []).filter((m) => nonEmpty(m) && m.name),
+        allergies: (cleaned.basicInfo?.allergies || []).filter((a) => nonEmpty(a) && a.allergen && a.reaction),
+        medicalHistory: (cleaned.basicInfo?.medicalHistory || []).filter((h) => nonEmpty(h) && h.condition),
+      };
+
+      cleaned.additionalInfo = {
+        ...cleaned.additionalInfo,
+        questions: (cleaned.additionalInfo?.questions || []).filter((q) => nonEmpty(q) && q.question && q.answer && q.type),
+      };
+
+      // Assessment
+      const level = calculateRiskLevel();
+      cleaned.assessmentResults = {
+        riskLevel: level,
+        recommendations,
+      };
+
       const response = await selfCheckInAPI.create({
         appointmentId,
-        ...data
+        ...cleaned
       });
       
       toast.success('Self-check-in completed successfully!');
@@ -254,7 +294,7 @@ const SelfCheckInForm = () => {
               <div className="text-right">
                 <p className="text-sm text-gray-500">Appointment</p>
                 <p className="text-lg font-semibold text-gray-900">
-                  {appointment && new Date(appointment.date).toLocaleDateString()} at {appointment?.startTime}
+                  {appointment && new Date(appointment.appointment?.appointmentDate || appointment.appointmentDate || appointment.date).toLocaleDateString()} at {appointment?.appointment?.appointmentTime || appointment?.appointmentTime || appointment?.startTime}
                 </p>
               </div>
             </div>

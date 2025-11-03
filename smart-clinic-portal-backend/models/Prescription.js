@@ -14,7 +14,7 @@ const PrescriptionSchema = new mongoose.Schema({
   appointment: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Appointment',
-    required: true
+    required: false
   },
   organization: {
     type: mongoose.Schema.Types.ObjectId,
@@ -123,8 +123,8 @@ const PrescriptionSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Generate prescription number before saving
-PrescriptionSchema.pre('save', function (next) {
+// Generate prescription number before validation so it passes required check
+PrescriptionSchema.pre('validate', function (next) {
   if (!this.prescriptionNumber) {
     const timestamp = Date.now().toString();
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');

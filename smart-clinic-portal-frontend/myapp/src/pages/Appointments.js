@@ -11,7 +11,7 @@ const Appointments = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await appointmentsAPI.getAll({});
+      const res = await appointmentsAPI.getAll({ page: 1, limit: 50 });
       const list = Array.isArray(res.data) ? res.data : (res.data?.appointments || []);
       setAppointments(list);
     } catch (e) {
@@ -73,8 +73,8 @@ const Appointments = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {appointments.map((a) => (
                   <tr key={a._id}>
-                    <td className="px-4 py-3 text-sm text-gray-900">{new Date(a.date).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900">{a.startTime}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900">{new Date(a.appointmentDate || a.date).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900">{a.appointmentTime || a.startTime}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{a.doctor?.name || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{a.reason || '-'}</td>
                     <td className="px-4 py-3 text-sm font-medium">{a.status}</td>

@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 const Profile = () => {
-  const { user, setUser } = useAuth();
+  const { user, updateProfile: updateProfileCtx } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [changing, setChanging] = useState(false);
@@ -79,7 +79,9 @@ const Profile = () => {
     try {
       await authAPI.updateProfile(form);
       toast.success('Profile updated');
-      setUser({ ...user, ...form });
+      if (typeof updateProfileCtx === 'function') {
+        updateProfileCtx(form);
+      }
     } catch (e) {
       toast.error('Failed to update profile');
     } finally {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
-import { prescriptionsAPI, appointmentsAPI, organizationsAPI } from '../services/api';
+import { prescriptionsAPI, usersAPI } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { 
@@ -20,11 +20,11 @@ import {
 const CreatePrescription = () => {
   const { user } = useAuth();
   const [patients, setPatients] = useState([]);
-  const [recentAppointments, setRecentAppointments] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [lastCreatedPrescription, setLastCreatedPrescription] = useState(null);
 
   const {
     register,
@@ -43,6 +43,7 @@ const CreatePrescription = () => {
           name: '',
           dosage: '',
           frequency: '',
+          duration: '',
           instructions: '',
           quantity: '',
           refills: 0,
@@ -63,51 +64,36 @@ const CreatePrescription = () => {
   const diagnosis = watch('diagnosis');
 
   useEffect(() => {
-    fetchRecentAppointments();
+    fetchPatients();
   }, []);
 
   useEffect(() => {
     if (selectedPatientId) {
-      const patient = recentAppointments.find(apt => apt.patient._id === selectedPatientId)?.patient;
+      const patient = patients.find(p => p._id === selectedPatientId);
       setSelectedPatient(patient);
     }
-  }, [selectedPatientId, recentAppointments]);
+  }, [selectedPatientId, patients]);
 
-  const fetchRecentAppointments = async () => {
+  const fetchPatients = async () => {
     try {
-      const response = await appointmentsAPI.getAll({ 
-        doctorId: user.userId,
-        status: 'completed',
-        limit: 50
-      });
-      setRecentAppointments(response.data.appointments);
-      
-      // Extract unique patients
-      const uniquePatients = response.data.appointments.reduce((acc, apt) => {
-        if (!acc.find(p => p._id === apt.patient._id)) {
-          acc.push(apt.patient);
-        }
-        return acc;
-      }, []);
-      setPatients(uniquePatients);
+      const response = await usersAPI.list({ role: 'patient', isActive: true });
+      setPatients(response.data.users || []);
     } catch (error) {
-      toast.error('Failed to fetch recent appointments');
-      console.error('Error fetching appointments:', error);
+      toast.error('Failed to load patients');
+      console.error('Error fetching patients:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredPatients = patients.filter(patient =>
-    patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    patient.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredPatients = patients;
 
   const addMedication = () => {
     append({
       name: '',
       dosage: '',
       frequency: '',
+      duration: '',
       instructions: '',
       quantity: '',
       refills: 0,
@@ -122,17 +108,46 @@ const CreatePrescription = () => {
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 30);
       
+      const doctorId = user?._id || user?.id || user?.userId;
+      const organizationId = (typeof user?.organizationId === 'string')
+        ? user.organizationId
+        : (user?.organizationId?._id || undefined);
+
+      if (!doctorId) {
+        toast.error('Doctor identity missing. Please re-login.');
+        return;
+      }
+
+      if (!organizationId) {
+        toast.error('Organization context missing for your account. Contact admin.');
+        return;
+      }
+
       const prescriptionData = {
-        ...data,
-        patientId: data.patientId,
-        doctorId: user.userId,
-        organizationId: user.organizationId,
-        expiryDate: data.expiryDate || expiryDate.toISOString(),
-        issueDate: new Date().toISOString()
+        patient: data.patientId,
+        doctor: doctorId,
+        organization: organizationId,
+        diagnosis: {
+          primary: data.diagnosis,
+        },
+        medications: (data.medications || []).map((m) => ({
+          name: m.name,
+          dosage: m.dosage,
+          frequency: m.frequency,
+          duration: m.duration,
+          instructions: m.instructions,
+          quantity: m.quantity ? parseInt(m.quantity, 10) : 1,
+          refills: typeof m.refills === 'number' ? m.refills : 0,
+        })),
+        instructions: {
+          general: data.notes || ''
+        },
+        validUntil: data.expiryDate || expiryDate.toISOString()
       };
 
       const response = await prescriptionsAPI.create(prescriptionData);
       toast.success('Prescription created successfully!');
+      setLastCreatedPrescription(response.data?.prescription || null);
       
       // Reset form
       reset();
@@ -147,8 +162,25 @@ const CreatePrescription = () => {
   };
 
   const generatePDF = async () => {
-    // This would typically generate and download a PDF
-    toast.success('PDF generation would be implemented here');
+    if (!lastCreatedPrescription?._id) {
+      toast.error('Create a prescription first to generate PDF');
+      return;
+    }
+    try {
+      const res = await prescriptionsAPI.downloadPDF(lastCreatedPrescription._id);
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      const fileName = `prescription-${lastCreatedPrescription.prescriptionNumber || lastCreatedPrescription._id}.pdf`;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error('Failed to generate PDF');
+      console.error('PDF download error:', e);
+    }
   };
 
   if (loading) {
@@ -184,16 +216,6 @@ const CreatePrescription = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Select Patient *
                 </label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search patients..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="input-field pl-10 mb-2"
-                  />
-                </div>
                 <select
                   {...register('patientId', { required: 'Please select a patient' })}
                   className={`input-field ${errors.patientId ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
@@ -320,13 +342,32 @@ const CreatePrescription = () => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Duration *
+                      </label>
+                      <input
+                        {...register(`medications.${index}.duration`, { required: 'Duration is required' })}
+                        className={`input-field ${errors.medications?.[index]?.duration ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                        placeholder="e.g., 5 days"
+                      />
+                      {errors.medications?.[index]?.duration && (
+                        <p className="mt-1 text-sm text-red-600">{errors.medications[index].duration.message}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
                         Quantity
                       </label>
                       <input
-                        {...register(`medications.${index}.quantity`)}
-                        className="input-field"
-                        placeholder="e.g., 30 tablets"
+                        {...register(`medications.${index}.quantity`, { required: 'Quantity is required', valueAsNumber: true, min: { value: 1, message: 'Minimum 1' } })}
+                        type="number"
+                        min="1"
+                        className={`input-field ${errors.medications?.[index]?.quantity ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                        placeholder="e.g., 30"
                       />
+                      {errors.medications?.[index]?.quantity && (
+                        <p className="mt-1 text-sm text-red-600">{errors.medications[index].quantity.message}</p>
+                      )}
                     </div>
 
                     <div>

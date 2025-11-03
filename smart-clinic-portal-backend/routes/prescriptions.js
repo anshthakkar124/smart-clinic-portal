@@ -114,15 +114,31 @@ router.get('/:id', auth, async (req, res) => {
 // @route   POST /api/prescriptions
 // @desc    Create new prescription
 // @access  Private (Doctor only)
-router.post('/', auth, [
+router.post('/', auth, isDoctor, [
+  body('patient').isMongoId().withMessage('Valid patient ID is required'),
   body('doctor').isMongoId().withMessage('Valid doctor ID is required'),
   body('organization').isMongoId().withMessage('Valid organization ID is required'),
-  body('appointmentDate').isISO8601().withMessage('Valid appointment date is required'),
-  body('appointmentTime').notEmpty().withMessage('Appointment time is required'),
-  body('reason').trim().isLength({ min: 10, max: 500 }).withMessage('Reason must be between 10 and 500 characters'),
-  body('type').optional().isIn(['consultation', 'follow-up', 'emergency', 'routine-checkup', 'vaccination']),
-  body('symptoms').optional().isArray(),
-  body('notes').optional().isLength({ max: 1000 }).withMessage('Notes cannot exceed 1000 characters')
+  body('appointment').optional().isMongoId(),
+  body('diagnosis.primary').trim().notEmpty().withMessage('Primary diagnosis is required'),
+  body('diagnosis.secondary').optional().isArray(),
+  body('diagnosis.notes').optional().isString(),
+  body('medications').isArray({ min: 1 }).withMessage('At least one medication is required'),
+  body('medications.*.name').notEmpty().withMessage('Medication name is required'),
+  body('medications.*.dosage').notEmpty().withMessage('Medication dosage is required'),
+  body('medications.*.frequency').notEmpty().withMessage('Medication frequency is required'),
+  body('medications.*.duration').notEmpty().withMessage('Medication duration is required'),
+  body('medications.*.instructions').notEmpty().withMessage('Medication instructions are required'),
+  body('medications.*.quantity').isInt({ min: 1 }).withMessage('Medication quantity must be a positive integer'),
+  body('instructions.general').optional().isString(),
+  body('instructions.followUp').optional().isString(),
+  body('instructions.emergency').optional().isString(),
+  body('labTests').optional().isArray(),
+  body('imaging').optional().isArray(),
+  body('followUp.required').optional().isBoolean(),
+  body('followUp.timeframe').optional().isString(),
+  body('followUp.reason').optional().isString(),
+  body('followUp.instructions').optional().isString(),
+  body('validUntil').optional().isISO8601().toDate()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -134,15 +150,17 @@ router.post('/', auth, [
     }
 
     const {
+      patient,
       doctor,
       organization,
-      appointmentDate,
-      appointmentTime,
-      reason,
-      type = 'consultation',
-      symptoms = [],
-      notes,
-      duration = 30
+      appointment,
+      diagnosis,
+      medications,
+      instructions = {},
+      labTests = [],
+      imaging = [],
+      followUp = {},
+      validUntil
     } = req.body;
 
     // Verify doctor exists and is active
@@ -151,62 +169,72 @@ router.post('/', auth, [
       return res.status(400).json({ message: 'Doctor not found or inactive' });
     }
 
+    // Verify patient exists and is active
+    const patientExists = await User.findOne({ _id: patient, role: 'patient', isActive: true });
+    if (!patientExists) {
+      return res.status(400).json({ message: 'Patient not found or inactive' });
+    }
+
     // Verify organization exists and is active
     const organizationExists = await Organization.findOne({ _id: organization, isActive: true });
     if (!organizationExists) {
       return res.status(400).json({ message: 'Organization not found or inactive' });
     }
 
-    // Check for conflicting appointments
-    const appointmentDateTime = new Date(`${appointmentDate}T${appointmentTime}`);
-    const endTime = new Date(appointmentDateTime.getTime() + duration * 60000);
-
-    const conflictingAppointment = await Appointment.findOne({
-      doctor,
-      appointmentDate: new Date(appointmentDate),
-      $or: [
-        {
-          appointmentTime: {
-            $gte: appointmentTime,
-            $lt: endTime.toTimeString().slice(0, 5)
-          }
-        }
-      ],
-      status: { $in: ['scheduled', 'confirmed', 'in-progress'] }
-    });
-
-    if (conflictingAppointment) {
-      return res.status(400).json({
-        message: 'Doctor has a conflicting appointment at this time'
-      });
-    }
-
-    // Create appointment
-    const appointment = new Appointment({
-      patient: req.user.userId,
+    // Build prescription payload
+    const payload = {
+      patient,
       doctor,
       organization,
-      appointmentDate: new Date(appointmentDate),
-      appointmentTime,
-      duration,
-      reason,
-      type,
-      symptoms,
-      notes
-    });
+      appointment: appointment || undefined,
+      diagnosis: {
+        primary: diagnosis.primary,
+        secondary: diagnosis.secondary || [],
+        notes: diagnosis.notes || ''
+      },
+      medications: medications.map((m) => ({
+        name: m.name,
+        genericName: m.genericName || undefined,
+        dosage: m.dosage,
+        frequency: m.frequency,
+        duration: m.duration,
+        instructions: m.instructions,
+        quantity: Number(m.quantity),
+        refills: typeof m.refills === 'number' ? m.refills : 0,
+        startDate: m.startDate ? new Date(m.startDate) : undefined,
+        endDate: m.endDate ? new Date(m.endDate) : undefined,
+        sideEffects: m.sideEffects || [],
+        warnings: m.warnings || []
+      })),
+      instructions: {
+        general: instructions.general || '',
+        followUp: instructions.followUp || '',
+        emergency: instructions.emergency || ''
+      },
+      labTests,
+      imaging,
+      followUp: {
+        required: Boolean(followUp.required),
+        timeframe: followUp.timeframe || '',
+        reason: followUp.reason || '',
+        instructions: followUp.instructions || ''
+      },
+      validUntil: validUntil ? new Date(validUntil) : undefined
+    };
 
-    await appointment.save();
+    const prescription = new Prescription(payload);
+    await prescription.save();
 
-    // Populate the appointment for response
-    await appointment.populate([
-      { path: 'patient', select: 'name email phone' },
+    await prescription.populate([
+      { path: 'patient', select: 'name email phone dateOfBirth address' },
       { path: 'doctor', select: 'name email phone' },
-      { path: 'organization', select: 'name address contact' }
+      { path: 'organization', select: 'name address contact' },
+      { path: 'appointment', select: 'appointmentDate appointmentTime reason' }
     ]);
 
     res.status(201).json({
-      message: 'Appointment created successfully',
-      appointment
+      message: 'Prescription created successfully',
+      prescription
     });
   } catch (error) {
     console.error('Create appointment error:', error);
@@ -335,18 +363,37 @@ router.get('/:id/pdf', auth, async (req, res) => {
 
     // Patient information
     doc.fontSize(14).text('PATIENT INFORMATION', { underline: true });
-    doc.fontSize(12).text(`Name: ${prescription.patient.name}`);
-    doc.text(`Phone: ${prescription.patient.phone}`);
-    doc.text(`Date of Birth: ${prescription.patient.dateOfBirth.toLocaleDateString()}`);
-    doc.text(`Address: ${prescription.patient.address.street}, ${prescription.patient.address.city}, ${prescription.patient.address.state} ${prescription.patient.address.zipCode}`);
+    doc.fontSize(12).text(`Name: ${prescription.patient?.name || 'N/A'}`);
+    if (prescription.patient?.phone) {
+      doc.text(`Phone: ${prescription.patient.phone}`);
+    }
+    if (prescription.patient?.dateOfBirth) {
+      const dob = new Date(prescription.patient.dateOfBirth);
+      if (!isNaN(dob)) {
+        doc.text(`Date of Birth: ${dob.toLocaleDateString()}`);
+      }
+    }
+    if (prescription.patient?.address) {
+      const a = prescription.patient.address;
+      const line = [a.street, a.city, a.state, a.zipCode].filter(Boolean).join(', ');
+      if (line) doc.text(`Address: ${line}`);
+    }
     doc.moveDown();
 
-    // Appointment information
-    doc.fontSize(14).text('APPOINTMENT DETAILS', { underline: true });
-    doc.fontSize(12).text(`Date: ${prescription.appointment.appointmentDate.toLocaleDateString()}`);
-    doc.text(`Time: ${prescription.appointment.appointmentTime}`);
-    doc.text(`Reason: ${prescription.appointment.reason}`);
-    doc.moveDown();
+    // Appointment information (optional)
+    if (prescription.appointment) {
+      doc.fontSize(14).text('APPOINTMENT DETAILS', { underline: true });
+      if (prescription.appointment.appointmentDate) {
+        doc.fontSize(12).text(`Date: ${prescription.appointment.appointmentDate.toLocaleDateString()}`);
+      }
+      if (prescription.appointment.appointmentTime) {
+        doc.text(`Time: ${prescription.appointment.appointmentTime}`);
+      }
+      if (prescription.appointment.reason) {
+        doc.text(`Reason: ${prescription.appointment.reason}`);
+      }
+      doc.moveDown();
+    }
 
     // Diagnosis
     doc.fontSize(14).text('DIAGNOSIS', { underline: true });

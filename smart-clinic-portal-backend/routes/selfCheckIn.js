@@ -136,13 +136,154 @@ router.post('/', [
       return res.status(400).json({ message: 'Self-check-in already exists for this appointment' });
     }
 
+    // Clean and validate data
+    const cleanedData = { ...checkInData };
+
+    // Convert string numbers to actual numbers for vital signs
+    if (cleanedData.vitalSigns) {
+      const convertToNumber = (val) => {
+        if (val === '' || val === null || val === undefined) return undefined;
+        const num = typeof val === 'string' ? parseFloat(val) : val;
+        return isNaN(num) ? undefined : num;
+      };
+
+      if (cleanedData.vitalSigns.bloodPressure) {
+        if (cleanedData.vitalSigns.bloodPressure.systolic) {
+          cleanedData.vitalSigns.bloodPressure.systolic = convertToNumber(cleanedData.vitalSigns.bloodPressure.systolic);
+        }
+        if (cleanedData.vitalSigns.bloodPressure.diastolic) {
+          cleanedData.vitalSigns.bloodPressure.diastolic = convertToNumber(cleanedData.vitalSigns.bloodPressure.diastolic);
+        }
+      }
+      if (cleanedData.vitalSigns.heartRate?.value) {
+        cleanedData.vitalSigns.heartRate.value = convertToNumber(cleanedData.vitalSigns.heartRate.value);
+      }
+      if (cleanedData.vitalSigns.temperature?.value) {
+        cleanedData.vitalSigns.temperature.value = convertToNumber(cleanedData.vitalSigns.temperature.value);
+      }
+      if (cleanedData.vitalSigns.weight?.value) {
+        cleanedData.vitalSigns.weight.value = convertToNumber(cleanedData.vitalSigns.weight.value);
+      }
+      if (cleanedData.vitalSigns.height?.value) {
+        cleanedData.vitalSigns.height.value = convertToNumber(cleanedData.vitalSigns.height.value);
+      }
+      if (cleanedData.vitalSigns.oxygenSaturation?.value) {
+        cleanedData.vitalSigns.oxygenSaturation.value = convertToNumber(cleanedData.vitalSigns.oxygenSaturation.value);
+      }
+    }
+
+    // Filter symptoms: only include those with valid symptom name
+    if (cleanedData.basicInfo?.currentSymptoms) {
+      cleanedData.basicInfo.currentSymptoms = cleanedData.basicInfo.currentSymptoms.filter(symptom => {
+        return symptom.symptom && symptom.symptom.trim() !== '' && symptom.severity;
+      });
+    }
+
+    // Filter medications: only include those with valid data, set default startDate if empty
+    if (cleanedData.basicInfo?.currentMedications) {
+      cleanedData.basicInfo.currentMedications = cleanedData.basicInfo.currentMedications.filter(med => {
+        if (!med.name || !med.dosage || !med.frequency) return false;
+        // If startDate is empty or invalid, set to current date
+        if (!med.startDate || med.startDate === '') {
+          med.startDate = new Date();
+        } else {
+          med.startDate = new Date(med.startDate);
+        }
+        return !isNaN(med.startDate.getTime());
+      });
+    }
+
+    // Filter allergies: only include those with valid data
+    if (cleanedData.basicInfo?.allergies) {
+      cleanedData.basicInfo.allergies = cleanedData.basicInfo.allergies.filter(allergy => {
+        return allergy.allergen && allergy.allergen.trim() !== '' && 
+               allergy.reaction && allergy.reaction.trim() !== '' && 
+               allergy.severity;
+      });
+    }
+
+    // Filter medical history: only include those with valid data
+    if (cleanedData.basicInfo?.medicalHistory) {
+      cleanedData.basicInfo.medicalHistory = cleanedData.basicInfo.medicalHistory.filter(hist => {
+        if (!hist.condition || !hist.status) return false;
+        if (!hist.diagnosisDate || hist.diagnosisDate === '') {
+          hist.diagnosisDate = new Date();
+        } else {
+          hist.diagnosisDate = new Date(hist.diagnosisDate);
+        }
+        return !isNaN(hist.diagnosisDate.getTime());
+      });
+    }
+
+    // Convert boolean strings to actual booleans
+    const normalizeBool = (val) => {
+      if (typeof val === 'boolean') return val;
+      if (typeof val === 'string') return val.toLowerCase() === 'true';
+      return false;
+    };
+
+    if (cleanedData.mentalHealth?.hasMentalHealthConcerns !== undefined) {
+      cleanedData.mentalHealth.hasMentalHealthConcerns = normalizeBool(cleanedData.mentalHealth.hasMentalHealthConcerns);
+    }
+    if (cleanedData.emergencyInfo?.hasEmergencySymptoms !== undefined) {
+      cleanedData.emergencyInfo.hasEmergencySymptoms = normalizeBool(cleanedData.emergencyInfo.hasEmergencySymptoms);
+    }
+    if (cleanedData.emergencyInfo?.needsImmediateAttention !== undefined) {
+      cleanedData.emergencyInfo.needsImmediateAttention = normalizeBool(cleanedData.emergencyInfo.needsImmediateAttention);
+    }
+    if (cleanedData.covidScreening) {
+      if (cleanedData.covidScreening.hasSymptoms !== undefined) {
+        cleanedData.covidScreening.hasSymptoms = normalizeBool(cleanedData.covidScreening.hasSymptoms);
+      }
+      if (cleanedData.covidScreening.hasBeenExposed !== undefined) {
+        cleanedData.covidScreening.hasBeenExposed = normalizeBool(cleanedData.covidScreening.hasBeenExposed);
+      }
+      if (cleanedData.covidScreening.hasTestedPositive !== undefined) {
+        cleanedData.covidScreening.hasTestedPositive = normalizeBool(cleanedData.covidScreening.hasTestedPositive);
+      }
+      if (cleanedData.covidScreening.isVaccinated !== undefined) {
+        cleanedData.covidScreening.isVaccinated = normalizeBool(cleanedData.covidScreening.isVaccinated);
+      }
+
+      // If not vaccinated, clear vaccination details
+      if (!cleanedData.covidScreening.isVaccinated) {
+        cleanedData.covidScreening.vaccinationDetails = [];
+      } else if (Array.isArray(cleanedData.covidScreening.vaccinationDetails)) {
+        // Filter out empty vaccination entries and coerce dates
+        cleanedData.covidScreening.vaccinationDetails = cleanedData.covidScreening.vaccinationDetails.filter(v => {
+          return v.vaccineType && v.vaccineType.trim() !== '';
+        }).map(v => ({
+          vaccineType: v.vaccineType,
+          doseNumber: v.doseNumber,
+          vaccinationDate: v.vaccinationDate ? new Date(v.vaccinationDate) : undefined
+        }));
+      }
+    }
+
+    // Filter mental health medications
+    if (cleanedData.mentalHealth?.currentMedications) {
+      cleanedData.mentalHealth.currentMedications = cleanedData.mentalHealth.currentMedications.filter(m => {
+        return m.medication && m.medication.trim() !== '' && m.dosage && m.dosage.trim() !== '';
+      });
+    }
+
+    // Ensure status is set
+    if (!cleanedData.status) {
+      cleanedData.status = 'completed';
+    }
+
+    // Ensure assessment results are set if provided
+    if (cleanedData.assessmentResults && !cleanedData.assessmentResults.riskLevel) {
+      cleanedData.assessmentResults.riskLevel = 'low';
+    }
+
     const selfCheckIn = new SelfCheckIn({
-      ...checkInData,
+      ...cleanedData,
       patient: req.user.userId,
       appointment: appointmentId,
-      organizationId: appointment.organizationId,
-      consentGiven: checkInData.consentGiven,
-      dataSharingConsent: checkInData.dataSharingConsent
+      organizationId: appointment.organization || appointment.organizationId,
+      consentGiven: cleanedData.consentGiven,
+      dataSharingConsent: cleanedData.dataSharingConsent
     });
 
     await selfCheckIn.save();
@@ -150,8 +291,8 @@ router.post('/', [
     // Populate the response
     await selfCheckIn.populate([
       { path: 'patient', select: 'name email phone' },
-      { path: 'appointment', select: 'date startTime endTime reason' },
-      { path: 'organizationId', select: 'name' }
+      { path: 'appointment', select: 'appointmentDate appointmentTime reason' },
+      { path: 'organizationId', select: 'name address' }
     ]);
 
     res.status(201).json({
@@ -160,7 +301,15 @@ router.post('/', [
     });
   } catch (error) {
     console.error('Error creating self-check-in:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error details:', {
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      validationErrors: error.errors
+    });
+    res.status(500).json({ 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 });
 

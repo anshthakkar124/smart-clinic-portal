@@ -14,7 +14,7 @@ const SelfCheck = () => {
       try {
         const [appsRes, checksRes] = await Promise.all([
           appointmentsAPI.getAll({ page: 1, limit: 10 }),
-          selfCheckInAPI.getAll({ limit: 5 })
+          selfCheckInAPI.getAll({ page: 1, limit: 5 })
         ]);
         const appList = Array.isArray(appsRes.data) ? appsRes.data : (appsRes.data?.appointments || []);
         setAppointments(appList);
@@ -59,7 +59,7 @@ const SelfCheck = () => {
               {appointments.slice(0,5).map((a) => (
                 <li key={a._id} className="py-4 flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{new Date(a.date).toLocaleDateString()} • {a.startTime}</p>
+                    <p className="text-sm font-medium text-gray-900">{new Date(a.appointmentDate || a.date).toLocaleDateString()} • {a.appointmentTime || a.startTime}</p>
                     <p className="text-sm text-gray-600">{a.reason || 'Appointment'}{a.doctor?.name ? ` • Dr. ${a.doctor.name}` : ''}</p>
                   </div>
                   <Link to={`/self-checkin/${a._id}`} className="btn-primary flex items-center">

@@ -53,20 +53,18 @@ const PatientDashboard = () => {
 
   const fetchAppointments = async () => {
     try {
-      const response = await appointmentsAPI.getAll({ 
-        patientId: user.userId,
-        limit: 10 
-      });
-      setAppointments(response.data.appointments);
-      
-      const upcoming = response.data.appointments.filter(apt => 
-        new Date(apt.date) > new Date() && apt.status !== 'cancelled'
+      const response = await appointmentsAPI.getAll({ page: 1, limit: 10 });
+      const list = response.data?.appointments || [];
+      setAppointments(list);
+
+      const upcoming = list.filter(apt => 
+        new Date(apt.appointmentDate || apt.date) > new Date() && apt.status !== 'cancelled'
       ).length;
-      const completed = response.data.appointments.filter(apt => apt.status === 'completed').length;
-      
+      const completed = list.filter(apt => apt.status === 'completed').length;
+
       setStats(prev => ({
         ...prev,
-        totalAppointments: response.data.appointments.length,
+        totalAppointments: list.length,
         upcomingAppointments: upcoming,
         completedAppointments: completed
       }));
@@ -78,12 +76,10 @@ const PatientDashboard = () => {
 
   const fetchPrescriptions = async () => {
     try {
-      const response = await prescriptionsAPI.getAll({ 
-        patientId: user.userId,
-        limit: 10 
-      });
-      setPrescriptions(response.data.prescriptions);
-      setStats(prev => ({ ...prev, totalPrescriptions: response.data.prescriptions.length }));
+      const response = await prescriptionsAPI.getAll({ page: 1, limit: 10 });
+      const list = response.data?.prescriptions || [];
+      setPrescriptions(list);
+      setStats(prev => ({ ...prev, totalPrescriptions: list.length }));
     } catch (error) {
       toast.error('Failed to fetch prescriptions');
       console.error('Error fetching prescriptions:', error);
@@ -334,7 +330,7 @@ const PatientDashboard = () => {
                                 {appointment.organization?.name || 'Unknown Organization'}
                               </p>
                               <p className="text-sm text-gray-500">
-                                {new Date(appointment.date).toLocaleDateString()} at {appointment.startTime}
+                                {new Date(appointment.appointmentDate || appointment.date).toLocaleDateString()} at {appointment.appointmentTime || appointment.startTime}
                               </p>
                               <p className="text-xs text-gray-400">
                                 Dr. {appointment.doctor?.name || 'Unknown Doctor'}
@@ -398,7 +394,7 @@ const PatientDashboard = () => {
                             Dr. {prescription.doctor?.name || 'Unknown Doctor'}
                           </p>
                           <p className="text-xs text-gray-400">
-                            {new Date(prescription.issueDate).toLocaleDateString()}
+                            {prescription.createdAt ? new Date(prescription.createdAt).toLocaleDateString() : '—'}
                           </p>
                         </div>
                       </div>

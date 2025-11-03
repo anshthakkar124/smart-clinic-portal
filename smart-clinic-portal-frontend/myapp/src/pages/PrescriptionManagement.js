@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { prescriptionsAPI } from '../services/api';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { 
@@ -19,6 +20,7 @@ import {
 
 const PrescriptionManagement = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [prescriptions, setPrescriptions] = useState([]);
   const [filteredPrescriptions, setFilteredPrescriptions] = useState([]);
   const [selectedPrescription, setSelectedPrescription] = useState(null);
@@ -30,6 +32,11 @@ const PrescriptionManagement = () => {
   });
 
   useEffect(() => {
+    // Redirect patients to their dedicated page
+    if (user?.role === 'patient') {
+      navigate('/my-prescriptions', { replace: true });
+      return;
+    }
     fetchPrescriptions();
   }, []);
 
@@ -40,15 +47,19 @@ const PrescriptionManagement = () => {
   const fetchPrescriptions = async () => {
     try {
       let response;
+      const userId = user?._id || user?.id || user?.userId;
       if (user.role === 'doctor') {
-        response = await prescriptionsAPI.getAll({ doctorId: user.userId });
+        response = await prescriptionsAPI.getAll({ page: 1, limit: 100 });
       } else if (user.role === 'admin') {
-        response = await prescriptionsAPI.getAll({ organizationId: user.organizationId });
+        const orgId = typeof user.organizationId === 'string' 
+          ? user.organizationId 
+          : (user?.organizationId?._id || user?.organizationId);
+        response = await prescriptionsAPI.getAll({ page: 1, limit: 100, organizationId: orgId });
       } else {
-        response = await prescriptionsAPI.getAll({ patientId: user.userId });
+        response = await prescriptionsAPI.getAll({ page: 1, limit: 100 });
       }
       
-      setPrescriptions(response.data.prescriptions);
+      setPrescriptions(response.data?.prescriptions || []);
     } catch (error) {
       toast.error('Failed to fetch prescriptions');
       console.error('Error fetching prescriptions:', error);
@@ -62,40 +73,78 @@ const PrescriptionManagement = () => {
 
     if (filters.status) {
       filtered = filtered.filter(pres => {
+        const validUntil = pres.validUntil ? new Date(pres.validUntil) : null;
         if (filters.status === 'active') {
-          return !pres.isDispensed && new Date(pres.expiryDate) > new Date();
+          return pres.status === 'active' && validUntil && validUntil > new Date();
         } else if (filters.status === 'expired') {
-          return new Date(pres.expiryDate) <= new Date();
+          return validUntil && validUntil <= new Date();
         } else if (filters.status === 'dispensed') {
-          return pres.isDispensed;
+          return pres.status === 'completed';
         }
         return true;
       });
     }
 
     if (filters.date) {
-      filtered = filtered.filter(pres => 
-        new Date(pres.issueDate).toDateString() === new Date(filters.date).toDateString()
-      );
+      filtered = filtered.filter(pres => {
+        const createdAt = pres.createdAt ? new Date(pres.createdAt) : null;
+        return createdAt && createdAt.toDateString() === new Date(filters.date).toDateString();
+      });
     }
 
     if (filters.search) {
       const searchTerm = filters.search.toLowerCase();
-      filtered = filtered.filter(pres => 
-        pres.patient?.name?.toLowerCase().includes(searchTerm) ||
-        pres.doctor?.name?.toLowerCase().includes(searchTerm) ||
-        pres.diagnosis?.toLowerCase().includes(searchTerm) ||
-        pres.medications?.some(med => med.name.toLowerCase().includes(searchTerm))
-      );
+      filtered = filtered.filter(pres => {
+        // Safely extract diagnosis text
+        const diagnosisParts = [];
+        if (pres.diagnosis) {
+          if (typeof pres.diagnosis === 'string') {
+            diagnosisParts.push(pres.diagnosis);
+          } else if (typeof pres.diagnosis === 'object') {
+            if (pres.diagnosis.primary) diagnosisParts.push(pres.diagnosis.primary);
+            if (Array.isArray(pres.diagnosis.secondary)) {
+              diagnosisParts.push(...pres.diagnosis.secondary.filter(Boolean));
+            }
+            if (pres.diagnosis.notes && typeof pres.diagnosis.notes === 'string') {
+              diagnosisParts.push(pres.diagnosis.notes);
+            }
+          }
+        }
+        const diagnosisText = diagnosisParts.filter(Boolean).join(' ').toLowerCase();
+        return (
+          pres.patient?.name?.toLowerCase().includes(searchTerm) ||
+          pres.doctor?.name?.toLowerCase().includes(searchTerm) ||
+          diagnosisText.includes(searchTerm) ||
+          pres.medications?.some(med => med.name.toLowerCase().includes(searchTerm))
+        );
+      });
     }
 
     setFilteredPrescriptions(filtered);
   };
 
+  const formatDiagnosis = (diagnosis) => {
+    if (!diagnosis) return 'No diagnosis';
+    if (typeof diagnosis === 'string') return diagnosis;
+    if (typeof diagnosis === 'object') {
+      if (diagnosis.primary) return diagnosis.primary;
+      // If it's an object but no primary, return a safe string
+      return 'No diagnosis';
+    }
+    return 'No diagnosis';
+  };
+
   const downloadPDF = async (prescriptionId) => {
     try {
-      // This would typically download the PDF
-      toast.success('PDF download would be implemented here');
+      const res = await prescriptionsAPI.downloadPDF(prescriptionId);
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `prescription-${prescriptionId}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (error) {
       toast.error('Failed to download PDF');
       console.error('Error downloading PDF:', error);
@@ -103,33 +152,24 @@ const PrescriptionManagement = () => {
   };
 
   const getStatusColor = (prescription) => {
-    if (prescription.isDispensed) {
-      return 'bg-green-100 text-green-800';
-    } else if (new Date(prescription.expiryDate) <= new Date()) {
-      return 'bg-red-100 text-red-800';
-    } else {
-      return 'bg-blue-100 text-blue-800';
-    }
+    const validUntil = prescription.validUntil ? new Date(prescription.validUntil) : null;
+    if (prescription.status === 'completed') return 'bg-green-100 text-green-800';
+    if (validUntil && validUntil <= new Date()) return 'bg-red-100 text-red-800';
+    return 'bg-blue-100 text-blue-800';
   };
 
   const getStatusText = (prescription) => {
-    if (prescription.isDispensed) {
-      return 'Dispensed';
-    } else if (new Date(prescription.expiryDate) <= new Date()) {
-      return 'Expired';
-    } else {
-      return 'Active';
-    }
+    const validUntil = prescription.validUntil ? new Date(prescription.validUntil) : null;
+    if (prescription.status === 'completed') return 'Completed';
+    if (validUntil && validUntil <= new Date()) return 'Expired';
+    return 'Active';
   };
 
   const getStatusIcon = (prescription) => {
-    if (prescription.isDispensed) {
-      return <CheckCircle className="h-4 w-4" />;
-    } else if (new Date(prescription.expiryDate) <= new Date()) {
-      return <XCircle className="h-4 w-4" />;
-    } else {
-      return <AlertCircle className="h-4 w-4" />;
-    }
+    const validUntil = prescription.validUntil ? new Date(prescription.validUntil) : null;
+    if (prescription.status === 'completed') return <CheckCircle className="h-4 w-4" />;
+    if (validUntil && validUntil <= new Date()) return <XCircle className="h-4 w-4" />;
+    return <AlertCircle className="h-4 w-4" />;
   };
 
   if (loading) {
@@ -232,7 +272,7 @@ const PrescriptionManagement = () => {
                                   }
                                 </p>
                                 <p className="text-sm text-gray-500">
-                                  {new Date(prescription.issueDate).toLocaleDateString()}
+                                  {prescription.createdAt ? new Date(prescription.createdAt).toLocaleDateString() : '—'}
                                 </p>
                               </div>
                               <div>
@@ -240,7 +280,7 @@ const PrescriptionManagement = () => {
                                   {prescription.medications?.length || 0} medications
                                 </p>
                                 <p className="text-sm text-gray-500">
-                                  {prescription.diagnosis}
+                                  {formatDiagnosis(prescription.diagnosis)}
                                 </p>
                               </div>
                               {user.role === 'patient' && (
@@ -331,15 +371,19 @@ const PrescriptionManagement = () => {
                       <p><strong>Name:</strong> {selectedPrescription.patient?.name}</p>
                       <p><strong>Email:</strong> {selectedPrescription.patient?.email}</p>
                       <p><strong>Phone:</strong> {selectedPrescription.patient?.phone}</p>
-                      <p><strong>Date of Birth:</strong> {new Date(selectedPrescription.patient?.dateOfBirth).toLocaleDateString()}</p>
+                      <p><strong>Date of Birth:</strong> {
+                        selectedPrescription.patient?.dateOfBirth 
+                          ? new Date(selectedPrescription.patient.dateOfBirth).toLocaleDateString() 
+                          : '—'
+                      }</p>
                     </div>
                   </div>
 
                   <div className="p-4 bg-green-50 rounded-lg">
                     <h4 className="text-sm font-medium text-gray-900 mb-2">Prescription Information</h4>
                     <div className="space-y-1 text-sm text-gray-600">
-                      <p><strong>Issue Date:</strong> {new Date(selectedPrescription.issueDate).toLocaleDateString()}</p>
-                      <p><strong>Expiry Date:</strong> {new Date(selectedPrescription.expiryDate).toLocaleDateString()}</p>
+                      <p><strong>Issue Date:</strong> {selectedPrescription.createdAt ? new Date(selectedPrescription.createdAt).toLocaleDateString() : '—'}</p>
+                      <p><strong>Expiry Date:</strong> {selectedPrescription.validUntil ? new Date(selectedPrescription.validUntil).toLocaleDateString() : '—'}</p>
                       <p><strong>Status:</strong> 
                         <span className={`ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedPrescription)}`}>
                           {getStatusIcon(selectedPrescription)}
@@ -354,13 +398,25 @@ const PrescriptionManagement = () => {
                 <div className="space-y-4">
                   <div className="p-4 bg-yellow-50 rounded-lg">
                     <h4 className="text-sm font-medium text-gray-900 mb-2">Diagnosis</h4>
-                    <p className="text-sm text-gray-600">{selectedPrescription.diagnosis}</p>
+                    <div className="text-sm text-gray-600 space-y-1">
+                      <p><strong>Primary:</strong> {
+                        typeof selectedPrescription.diagnosis === 'string' 
+                          ? selectedPrescription.diagnosis 
+                          : (selectedPrescription.diagnosis?.primary || 'N/A')
+                      }</p>
+                      {Array.isArray(selectedPrescription.diagnosis?.secondary) && selectedPrescription.diagnosis.secondary.length > 0 && (
+                        <p><strong>Secondary:</strong> {selectedPrescription.diagnosis.secondary.filter(Boolean).join(', ')}</p>
+                      )}
+                      {selectedPrescription.diagnosis?.notes && typeof selectedPrescription.diagnosis.notes === 'string' && (
+                        <p><strong>Notes:</strong> {selectedPrescription.diagnosis.notes}</p>
+                      )}
+                    </div>
                   </div>
 
-                  {selectedPrescription.notes && (
+                  {selectedPrescription.instructions?.general && (
                     <div className="p-4 bg-gray-50 rounded-lg">
                       <h4 className="text-sm font-medium text-gray-900 mb-2">Additional Notes</h4>
-                      <p className="text-sm text-gray-600">{selectedPrescription.notes}</p>
+                      <p className="text-sm text-gray-600">{selectedPrescription.instructions.general}</p>
                     </div>
                   )}
                 </div>

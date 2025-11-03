@@ -84,8 +84,8 @@ const BookAppointment = () => {
   const fetchAvailableSlots = async () => {
     setLoadingSlots(true);
     try {
-      // Generate available time slots for the selected date
-      const slots = generateTimeSlots(selectedDate, selectedOrganization);
+      const res = await appointmentsAPI.getAvailableSlots(selectedDoctor._id, selectedDate);
+      const slots = (res.data?.availableSlots || []).map((t) => ({ time: t, available: true }));
       setAvailableSlots(slots);
     } catch (error) {
       toast.error('Failed to fetch available slots');
@@ -150,16 +150,15 @@ const BookAppointment = () => {
 
     try {
       const appointmentData = {
-        ...data,
-        organizationId: selectedOrganization._id,
-        doctorId: selectedDoctor._id,
-        date: selectedDate,
-        startTime: selectedTime,
-        endTime: availableSlots.find(slot => slot.time === selectedTime)?.endTime,
-        status: 'pending'
+        organization: selectedOrganization._id,
+        doctor: selectedDoctor._id,
+        appointmentDate: selectedDate,
+        appointmentTime: selectedTime,
+        reason: data.reason,
+        type: 'consultation'
       };
 
-      const response = await appointmentsAPI.create(appointmentData);
+      await appointmentsAPI.create(appointmentData);
       toast.success('Appointment booked successfully! You will receive a confirmation once approved.');
       
       // Reset form
